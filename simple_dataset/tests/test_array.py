@@ -83,6 +83,15 @@ class ArrayTest(unittest.TestCase):
         array = Array(dset, "hello")
         self.assertTrue(np.all(array[3:5] == 0))
 
+    def test_replace(self):
+        dset = self.dataset
+        array = Array.create(dset, "hello", np.random.rand(10, 2))
+        array[...] = np.random.rand(20, 2)
+        self.assertEqual((20, 2), array[:].shape)
+
+        array = Array(dset, "hello")
+        self.assertEqual((20, 2), array[:].shape)
+
     def test_writable(self):
         dset = self.dataset
         dset.is_writable = False

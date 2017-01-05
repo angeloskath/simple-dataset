@@ -237,8 +237,11 @@ class Array(object):
     def __setitem__(self, key, value):
         self.dataset._check_writable()
 
-        tmpdata = self[key]
-        tmpdata[:] = value
+        if key is Ellipsis:
+            self.data = np.array(value)
+        else:
+            tmpdata = self[key]
+            tmpdata[:] = value
         with gzip.open(self.array_path, "w") as f:
             np.save(f, self.data)
 
@@ -249,5 +252,6 @@ class Array(object):
         arr = cls(dataset, key)
         with gzip.open(arr.array_path, "w") as f:
             np.save(f, array)
+        arr.data = np.array(array)
 
         return arr
