@@ -1,5 +1,6 @@
 
 import errno
+import gzip
 import numpy as np
 import os
 from os import path
@@ -71,8 +72,12 @@ class Dataset(object):
         self.close()
 
     def _check_open(self):
-        assert not self.closed, ("The dataset is closed, no further "
-                                 "operations possible")
+        assert not self.closed, "The dataset is closed"
+
+    def _check_writable(self):
+        assert not self.closed and self.mode in {"w", "r+"}, ("The dataset is "
+                                                              "closed or not "
+                                                              "writable")
 
     def close(self):
         os.rmdir(self.lock_path)
@@ -98,7 +103,7 @@ class Dataset(object):
             raise KeyError("'%s' not found in Dataset" % (key,))
 
     def create_group(self, key):
-        self._check_open()
+        self._check_writable()
 
         try:
             os.mkdir(key)
@@ -112,8 +117,6 @@ class Dataset(object):
         return self[key]
 
     def create_array(self, key, array):
-        self._check_open()
-
         return Array.create(self, key, array)
 
 
@@ -132,13 +135,13 @@ class Group(object):
         self.key = key
 
     def keys(self):
-        return dataset._list_keys(self.key)
+        return self.dataset._list_keys(self.key)
 
     def __getitem__(self, key):
-        return dataset[path.join(self.key, key)]
+        return self.dataset[path.join(self.key, key)]
 
     def create_group(self, key):
-        return dataset.create_group(path.join(self.key, key))
+        return self.dataset.create_group(path.join(self.key, key))
 
 class Array(object):
     """A single array in a dataset.
@@ -159,7 +162,7 @@ class Array(object):
     def array_path(self):
         return path.join(self.dataset.path, self.key)
 
-    @propery
+    @property
     def attributes_path(self):
         return self.array_path + ".pickle"
 
@@ -176,9 +179,9 @@ class Array(object):
                     self._attributes = pickle.load(f)
         return self._attributes
 
-    @property.setter
+    @attributes.setter
     def attributes(self, new_attributes):
-        self.dataset._check_open()
+        self.dataset._check_writable()
 
         with open(self.attributes_path, "w") as f:
             pickle.dump(new_attributes, f, protocol=2)
@@ -193,14 +196,17 @@ class Array(object):
         return self.data[key]
 
     def __setitem__(self, key, value):
-        self.dataset._check_open()
+        self.dataset._check_writable()
 
-        self[key] = value
+        tmpdata = self[key]
+        tmpdata[:] = value
         with gzip.open(self.array_path, "w") as f:
             np.save(f, self.data)
 
     @classmethod
     def create(cls, dataset, key, array):
+        dataset._check_writable()
+
         arr = cls(dataset, key)
         with gzip.open(arr.array_path, "w") as f:
             np.save(f, array)
