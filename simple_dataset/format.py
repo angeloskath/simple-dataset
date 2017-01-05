@@ -80,17 +80,27 @@ class Dataset(object):
                                                               "writable")
 
     def close(self):
-        os.rmdir(self.lock_path)
+        if path.exists(self.lock_path):
+            os.rmdir(self.lock_path)
         self.closed = True
 
     def _list_keys(self, prefix=""):
-        return os.listdir(path.join(self.path, prefix))
+        return filter(
+            lambda x: x != ".lock" and not x.endswith(".pickle"),
+            os.listdir(path.join(self.path, prefix))
+        )
 
     def keys(self):
         return self._list_keys()
 
+    def __contains__(self, key):
+        return key in self.keys()
+
     def __getitem__(self, key):
         self._check_open()
+
+        if not isinstance(key, basestring):
+            raise TypeError("Dataset accepts only string keys")
 
         object_path = path.join(self.path, key)
         if not path.exists(object_path):
@@ -102,11 +112,29 @@ class Dataset(object):
         else:
             raise KeyError("'%s' not found in Dataset" % (key,))
 
+    def __delitem__(self, key):
+        self._check_writable()
+
+        if not isinstance(key, basestring):
+            raise TypeError("Dataset accepts only string keys")
+
+        object_path = path.join(self.path, key)
+        if path.exists(object_path):
+            if path.isdir(object_path):
+                shutil.rmtree(object_path)
+            elif path.isfile(object_path):
+                os.unlink(object_path)
+                try:
+                    os.unlink(object_path + ".pickle")
+                except OSError as e:
+                    if e.errno != errno.ENOENT:
+                        raise
+
     def create_group(self, key):
         self._check_writable()
 
         try:
-            os.mkdir(key)
+            os.makedirs(path.join(self.path, key))
         except OSError as e:
             if (
                 e.errno != errno.EEXIST or
@@ -117,6 +145,8 @@ class Dataset(object):
         return self[key]
 
     def create_array(self, key, array):
+        if path.dirname(key) != "":
+            group = self.create_group(path.dirname(key))
         return Array.create(self, key, array)
 
 
@@ -137,11 +167,20 @@ class Group(object):
     def keys(self):
         return self.dataset._list_keys(self.key)
 
+    def __contains__(self, key):
+        return key in self.keys()
+
     def __getitem__(self, key):
         return self.dataset[path.join(self.key, key)]
 
+    def __delitem__(self, key):
+        del self.dataset[path.join(self.key, key)]
+
     def create_group(self, key):
         return self.dataset.create_group(path.join(self.key, key))
+
+    def create_array(self, key, array):
+        return self.dataset.create_array(path.join(self.key, key), array)
 
 class Array(object):
     """A single array in a dataset.
@@ -206,7 +245,7 @@ class Array(object):
     @classmethod
     def create(cls, dataset, key, array):
         dataset._check_writable()
-
+        
         arr = cls(dataset, key)
         with gzip.open(arr.array_path, "w") as f:
             np.save(f, array)
